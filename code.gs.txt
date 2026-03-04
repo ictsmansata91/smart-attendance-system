@@ -1,0 +1,74 @@
+/**
+ * Smart Presensi Online v4.0
+ * Location: Pejagoan, Kebumen (-7.68623, 109.60757)
+ * Built for GitHub Repository
+ */
+
+const SS = SpreadsheetApp.getActiveSpreadsheet();
+const ADMIN_PASS = "20305027";
+
+function doGet() {
+  return HtmlService.createTemplateFromFile('index')
+         .evaluate()
+         .setTitle("Presensi Smart - Pejagoan")
+         .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+         .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+// Rumus Jarak Haversine (Akurasi Tinggi)
+function getDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371e3; // Radius bumi dalam meter
+  const p1 = lat1 * Math.PI/180;
+  const p2 = lat2 * Math.PI/180;
+  const dp = (lat2-lat1) * Math.PI/180;
+  const dl = (lon2-lon1) * Math.PI/180;
+  const a = Math.sin(dp/2)**2 + Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
+  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+}
+
+function prosesAbsen(nisnInput, latU, lonU) {
+  try {
+    const sSiswa = SS.getSheetByName("DataSiswa");
+    const sLog = SS.getSheetByName("DataPresensi");
+    const sSet = SS.getSheetByName("Settings");
+
+    // 1. Validasi NISN (Lookup ke DataSiswa)
+    const dSiswa = sSiswa.getDataRange().getValues();
+    const profil = dSiswa.find(r => r[0].toString() === nisnInput.toString());
+    if (!profil) return {status: "error", msg: "NISN tidak terdaftar!"};
+
+    // 2. Validasi Jarak (Maks 50m dari titik sekolah)
+    const latS = parseFloat(sSet.getRange("B3").getValue());
+    const lonS = parseFloat(sSet.getRange("B4").getValue());
+    const jarak = getDistance(latU, lonU, latS, lonS);
+    if (jarak > 50) return {status: "error", msg: `Jarak Anda ${Math.round(jarak)}m. (Maks 50m)`};
+
+    // 3. Logika Waktu
+    const skr = new Date();
+    const jam = Utilities.formatDate(skr, "GMT+7", "HH:mm");
+    const tgl = Utilities.formatDate(skr, "GMT+7", "dd-MM-yyyy");
+    const jamBatasStr = sSet.getRange("B1").getDisplayValue(); 
+    
+    const [hBatas, mBatas] = jamBatasStr.split(":");
+    const dBatas = new Date(); dBatas.setHours(parseInt(hBatas), parseInt(mBatas), 0);
+    const ket = (skr <= dBatas) ? "Tepat Waktu" : "Terlambat";
+
+    // 4. Rekap ke DataPresensi
+    sLog.appendRow([sLog.getLastRow(), profil[1], nisnInput, profil[2], jam, tgl, ket]);
+    return {status: "success", msg: `Halo ${profil[1]}, Absen Berhasil! (${ket})`};
+  } catch (e) {
+    return {status: "error", msg: "Sistem Error: " + e.message};
+  }
+}
+
+function getAdminData(pw) {
+  if (pw !== ADMIN_PASS) return null;
+  const log = SS.getSheetByName("DataPresensi").getDataRange().getValues();
+  const set = SS.getSheetByName("Settings").getRange("B1").getDisplayValue();
+  return { presensi: log, jamMasuk: set };
+}
+
+function updateSet(m) {
+  SS.getSheetByName("Settings").getRange("B1").setValue(m);
+  return "Jam masuk diperbarui!";
+}

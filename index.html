@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root { --bg: #0f172a; --card: #1e293b; --accent: #38bdf8; --text: #f1f5f9; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; }
+    .glass { background: var(--card); border: 1px solid rgba(255,255,255,0.1); border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
+    .nav-link { color: #94a3b8; transition: 0.3s; border-radius: 10px !important; }
+    .nav-link.active { background: var(--accent) !important; color: #000 !important; font-weight: 600; }
+    .form-control { background: #334155; border: none; color: white; padding: 12px; }
+    .form-control:focus { background: #475569; color: white; box-shadow: 0 0 10px var(--accent); }
+    .btn-primary { background: var(--accent); border: none; color: #000; font-weight: bold; }
+    .announcement { border-left: 5px solid var(--accent); background: rgba(56, 189, 248, 0.05); padding: 15px; border-radius: 10px; }
+  </style>
+</head>
+<body>
+<div class="container py-4">
+  <header class="text-center mb-4">
+    <h2 class="fw-bold">SMART <span style="color:var(--accent)">PRESENSI</span></h2>
+    <p class="text-secondary small">Lokasi: Jl. Garuda, Pejagoan, Kebumen</p>
+  </header>
+
+  <ul class="nav nav-pills nav-justified mb-4 glass p-1 mx-auto" style="max-width: 400px;">
+    <li class="nav-item"><a class="nav-link active" id="btn-siswa" onclick="nav('siswa')">Siswa</a></li>
+    <li class="nav-item"><a class="nav-link" id="btn-admin" onclick="nav('admin')">Admin</a></li>
+  </ul>
+
+  <section id="p-siswa" class="mx-auto" style="max-width: 450px;">
+    <div class="announcement mb-4">
+      <h6 class="text-accent fw-bold small mb-1">📢 PETUNJUK ABSENSI</h6>
+      <p class="small text-secondary mb-0">Masukkan NISN & pastikan jarak Anda maksimal 50m dari titik tengah sekolah.</p>
+    </div>
+    <div class="glass p-4 text-center">
+      <div class="mb-4 text-start">
+        <label class="small text-secondary mb-2">Nomor Induk Siswa Nasional (NISN)</label>
+        <input type="number" id="nisn" class="form-control form-control-lg text-center" placeholder="00xxxxxxxx">
+      </div>
+      <button class="btn btn-primary w-100 py-3 mb-2 shadow" id="btn-absen" onclick="doAbsen()">KIRIM KEHADIRAN</button>
+      <div id="status" class="mt-3 p-2 rounded small d-none"></div>
+    </div>
+  </section>
+
+  <section id="p-admin" class="d-none">
+    <div id="login-admin" class="mx-auto glass p-4 text-center" style="max-width: 400px;">
+      <h5 class="mb-3">🔐 Verifikasi Admin</h5>
+      <input type="password" id="pw" class="form-control mb-3" placeholder="Masukkan Password">
+      <button class="btn btn-primary w-100" onclick="doLogin()">MASUK</button>
+    </div>
+
+    <div id="dash-admin" class="d-none">
+      <div class="row g-3 mb-4">
+        <div class="col-md-8">
+          <div class="glass p-4 h-100">
+            <h6 class="mb-3">Statistik Kehadiran per Kelas</h6>
+            <canvas id="chartPresensi" height="200"></canvas>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="glass p-4 h-100 text-center">
+            <h6 class="mb-3">Pengaturan Jam</h6>
+            <input type="time" id="set-jam" class="form-control mb-2">
+            <button class="btn btn-primary btn-sm w-100" onclick="updateJam()">Update Jam Masuk</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="glass p-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h6 class="mb-0">Daftar Kehadiran</h6>
+          <div class="d-flex gap-2">
+            <select id="f-kelas" class="form-select form-select-sm" onchange="applyFilter()"></select>
+            <button class="btn btn-success btn-sm" onclick="exportXLS()">Excel</button>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-dark table-hover small" id="t-data">
+            <thead><tr><th>No</th><th>Nama</th><th>Kelas</th><th>Jam</th><th>Status</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+  let rawData = []; let myChart = null;
+
+  function nav(t) {
+    document.getElementById('p-siswa').classList.toggle('d-none', t !== 'siswa');
+    document.getElementById('p-admin').classList.toggle('d-none', t !== 'admin');
+    document.getElementById('btn-siswa').classList.toggle('active', t === 'siswa');
+    document.getElementById('btn-admin').classList.toggle('active', t === 'admin');
+  }
+
+  function doAbsen() {
+    const s = document.getElementById('status');
+    const n = document.getElementById('nisn').value;
+    if(!n) return alert("NISN wajib diisi!");
+    
+    s.innerHTML = "⏳ Mengecek Lokasi..."; s.className = "mt-3 p-2 rounded small bg-secondary text-white"; s.classList.remove('d-none');
+
+    navigator.geolocation.getCurrentPosition(p => {
+      google.script.run.withSuccessHandler(res => {
+        s.innerHTML = res.msg;
+        s.className = `mt-3 p-2 rounded small ${res.status === 'success' ? 'bg-info text-dark' : 'bg-danger text-white'}`;
+        if(res.status==='success') document.getElementById('nisn').value = "";
+      }).prosesAbsen(n, p.coords.latitude, p.coords.longitude);
+    }, () => { s.innerHTML = "❌ GPS Gagal/Ditolak!"; s.className = "mt-3 p-2 rounded small bg-danger text-white"; });
+  }
+
+  function doLogin() {
+    google.script.run.withSuccessHandler(res => {
+      if(!res) return alert("Sandi Salah!");
+      rawData = res.presensi;
+      document.getElementById('login-admin').classList.add('d-none');
+      document.getElementById('dash-admin').classList.remove('d-none');
+      document.getElementById('set-jam').value = res.jamMasuk;
+      renderAdmin(res.presensi);
+    }).getAdminData(document.getElementById('pw').value);
+  }
+
+  function renderAdmin(data) {
+    const body = document.querySelector("#t-data tbody");
+    const rows = data.slice(1).reverse();
+    let klsSet = new Set(); let stats = {};
+
+    body.innerHTML = rows.map(r => {
+      klsSet.add(r[3]);
+      stats[r[3]] = (stats[r[3]] || 0) + 1;
+      return `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[3]}</td><td>${r[4]}</td><td>${r[6]}</td></tr>`;
+    }).join("");
+
+    const fKls = document.getElementById('f-kelas');
+    fKls.innerHTML = '<option value="All">Semua Kelas</option>' + Array.from(klsSet).map(k => `<option value="${k}">${k}</option>`).join("");
+    
+    drawChart(stats);
+  }
+
+  function drawChart(stats) {
+    if(myChart) myChart.destroy();
+    myChart = new Chart(document.getElementById('chartPresensi'), {
+      type: 'bar',
+      data: { labels: Object.keys(stats), datasets: [{ label: 'Siswa Hadir', data: Object.values(stats), backgroundColor: '#38bdf8' }] },
+      options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, grid: { color: '#334155' } } } }
+    });
+  }
+
+  function applyFilter() {
+    const val = document.getElementById('f-kelas').value;
+    const rows = document.querySelectorAll("#t-data tbody tr");
+    rows.forEach(r => r.style.display = (val === "All" || r.cells[2].innerText === val) ? "" : "none");
+  }
+
+  function exportXLS() {
+    let csv = rawData.map(r => r.join("\t")).join("\n");
+    let a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], {type: "application/vnd.ms-excel"}));
+    a.download = "Rekap_Smart_Presensi.xls"; a.click();
+  }
+
+  function updateJam() {
+    google.script.run.withSuccessHandler(r => alert(r)).updateSet(document.getElementById('set-jam').value);
+  }
+</script>
+</body>
+</html>
